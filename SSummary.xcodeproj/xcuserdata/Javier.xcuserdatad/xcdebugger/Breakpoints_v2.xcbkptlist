@@ -6,16 +6,16 @@
       <BreakpointProxy
          BreakpointExtensionID = "Xcode.Breakpoint.FileBreakpoint">
          <BreakpointContent
-            shouldBeEnabled = "Yes"
+            shouldBeEnabled = "No"
             ignoreCount = "0"
             continueAfterRunningActions = "No"
             filePath = "SSummary/HTTPHelper.swift"
-            timestampString = "473717717.377284"
+            timestampString = "473883258.608764"
             startingColumnNumber = "9223372036854775807"
             endingColumnNumber = "9223372036854775807"
-            startingLineNumber = "30"
-            endingLineNumber = "30"
-            landmarkName = "buildRequest(_:method:authType:requestContentType:requestBoundary:)"
+            startingLineNumber = "40"
+            endingLineNumber = "40"
+            landmarkName = "alamofireManager()"
             landmarkType = "5">
          </BreakpointContent>
       </BreakpointProxy>

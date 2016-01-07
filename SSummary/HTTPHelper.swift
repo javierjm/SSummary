@@ -1,13 +1,7 @@
-//
-//  HTTPHelper.swift
-//  SSummary
-//
-//  Created by Javier Jara on 1/5/16.
-//  Copyright © 2016 Roco Soft. All rights reserved.
-//
 
 import Foundation
-import OAuthSwift
+import Alamofire
+import KeychainAccess
 
 enum HTTPRequestAuthType {
     case HTTPBasicAuth
@@ -20,171 +14,185 @@ enum HTTPRequestContentType {
 }
 
 class HTTPHelper {
-    static let API_AUTH_NAME = "<YOUR_HEROKU_API_ADMIN_NAME>"
-    static let API_AUTH_PASSWORD = "<YOUR_HEROKU_API_PASSWORD>"
-    static let BASE_URL = "https://XXXXX-XXX-1234.herokuapp.com/api"
+
     static let sharedInstance = HTTPHelper()
-    
-    func loadInitialData()
-    {
-        if (!HTTPHelper.sharedInstance.hasOAuthToken())
-        {
-            HTTPHelper.sharedInstance.startOAuth2Login()
+    let clientID = "9511"
+    let clientSecret = "ba59667445fdf41d77ce5aeff72592ce0c8f182f"
+    let authUrl = "https://www.strava.com/oauth/authorize"
+    let acessTokenUrl = "https://www.strava.com/oauth/token"
+    let redirectUri = "ssummary://ssummary.com"
+    let keychain = Keychain(service: "com.strava-token")
+
+    var OAuthToken: String? {
+        set {
+            if let valueToSave = newValue {
+                do {
+                    try keychain.set(valueToSave, key: "token")
+                }
+                catch let error {
+                    print(error)
+                }
+                addSessionHeader("Authorization", value: "token \(newValue)")
+            } else{
+                do {
+                try keychain.removeAll()
+                    removeSessionHeaderIfExists("Authorization")
+                } catch let error {
+                    print(error)
+                }
+            }
         }
-        else
-        {
+        get {
+            // try to load from keychain
+            do {
+                let token = try keychain.getString("token")
+                return token
+            } catch let error {
+                print (error)
+                removeSessionHeaderIfExists("Authorization")
+                return nil
+            }
+        }
+    }
+
+
+    // handlers for the OAuth process
+    // stored as vars since sometimes it requires a round trip to safari which
+    // makes it hard to just keep a reference to it
+    var OAuthTokenCompletionHandler:(NSError? -> Void)?
+    
+    func loadInitialData() {
+        if (!HTTPHelper.sharedInstance.hasOAuthToken()) {
+            HTTPHelper.sharedInstance.startOAuth2Login()
+        } else {
             // fetch Activities
     //        fetchMyRepos()
         }
     }
-    
-    let oauthswift = OAuth2Swift(
-        consumerKey:    "9511",         // 2 Enter google app settings
-        consumerSecret: "ba59667445fdf41d77ce5aeff72592ce0c8f182f",
-        authorizeUrl:   "https://www.strava.com/oauth/authorize",
-        accessTokenUrl: "https://accounts.google.com/o/oauth2/token",
-        responseType:   "code"
-    )
-    
 
+    func alamofireManager() -> Manager {
+        let manager = Alamofire.Manager.sharedInstance
+        return manager
+    }
     
-    func buildRequest(path: String!, method: String, authType: HTTPRequestAuthType,
-        requestContentType: HTTPRequestContentType = HTTPRequestContentType.HTTPJsonContent, requestBoundary:String = "") -> NSMutableURLRequest {
-            // 1. Create the request URL from path
-            let requestURL = NSURL(string: "\(HTTPHelper.BASE_URL)/\(path)")
-            let request = NSMutableURLRequest(URL: requestURL!)
+    func hasOAuthToken() -> Bool {
+        // TODO: implement
+        if let token = self.OAuthToken {
+            return !token.isEmpty
+        }
+        return false
+    }
+    
+    // MARK: - OAuth flow
+    
+    func startOAuth2Login() {
+        // TODO: implement
+        let authPath:String = "\(authUrl)?client_id=\(clientID)&response_type=code&scope=write&state=mystate&approval_prompt=force&redirect_uri=\(redirectUri)"
+        
+        if let authURL:NSURL = NSURL(string: authPath) {
+            // do stuff with authURL
+            let defaults = NSUserDefaults.standardUserDefaults()
+            defaults.setBool(true, forKey: "loadingOAuthToken")
             
-            // Set HTTP request method and Content-Type
-            request.HTTPMethod = method
-            
-            // 2. Set the correct Content-Type for the HTTP Request. This will be multipart/form-data for photo upload request and application/json for other requests in this app
-            switch requestContentType {
-            case .HTTPJsonContent:
-                request.addValue("application/json", forHTTPHeaderField: "Content-Type")
-            case .HTTPMultipartContent:
-                let contentType = "multipart/form-data; boundary=\(requestBoundary)"
-                request.addValue(contentType, forHTTPHeaderField: "Content-Type")
-            }
-            
-            // 3. Set the correct Authorization header.
-            switch authType {
-            case .HTTPBasicAuth:
-                // Set BASIC authentication header
-                let basicAuthString = "\(HTTPHelper.API_AUTH_NAME):\(HTTPHelper.API_AUTH_PASSWORD)"
-                let utf8str = basicAuthString.dataUsingEncoding(NSUTF8StringEncoding)
-                let base64EncodedString = utf8str?.base64EncodedStringWithOptions(NSDataBase64EncodingOptions(rawValue: 0))
-                
-                request.addValue("Basic \(base64EncodedString!)", forHTTPHeaderField: "Authorization")
-            case .HTTPTokenAuth: break
-                // Retreieve Auth_Token from Keychain
-//                if let userToken = KeychainAccess.passwordForAccount("Auth_Token", service: "KeyChainService") as String? {
-//                    // Set Authorization header
-//                    request.addValue("Token token=\(userToken)", forHTTPHeaderField: "Authorization")
-//                }
-            }
-            
-            return request
+            UIApplication.sharedApplication().openURL(authURL)
+        }
     }
     
     
-    func sendRequest(request: NSURLRequest, completion:(NSData!, NSError!) -> Void) -> () {
-        // Create a NSURLSession task
-        let session = NSURLSession.sharedSession()
-        let task = session.dataTaskWithRequest(request) { (data: NSData?, response: NSURLResponse?, error: NSError?) in
-            if error != nil {
-                dispatch_async(dispatch_get_main_queue(), { () -> Void in
-                    completion(data, error)
-                })
-                
-                return
+    func processOAuthStep1Response(url: NSURL) {
+        print("URL: \(url.absoluteString)")
+        let components = NSURLComponents(URL: url, resolvingAgainstBaseURL: false)
+        var code:String?
+        if let queryItems = components?.queryItems {
+            for queryItem in queryItems {
+                if (queryItem.name.lowercaseString == "code") {
+                    code = queryItem.value
+                    break
+                }
             }
-            
-            dispatch_async(dispatch_get_main_queue(), { () -> Void in
-                if let httpResponse = response as? NSHTTPURLResponse {
-                    if httpResponse.statusCode == 200 {
-                        completion(data, nil)
-                    } else {
-//                        var jsonerror: NSError
-                        do {
-                            _ = try NSJSONSerialization.JSONObjectWithData(data!, options: NSJSONReadingOptions.AllowFragments) as? NSDictionary
-                        } catch let error as NSError {
-//                            let responseError : NSError = NSError(domain: "HTTPHelperError", code: httpResponse.statusCode, userInfo: errorDict as? [NSObject : AnyObject])
-                            completion(data, error)
-                            print (error.localizedDescription)
+        }
+        
+        if let receivedCode = code {
+            let getTokenPath:String = acessTokenUrl
+            let tokenParams = ["client_id": clientID, "client_secret": clientSecret, "code": receivedCode]
+            Alamofire.request(.POST, getTokenPath, parameters: tokenParams).responseString{response in
+                    print(response.request)
+                if let anError = response.result.error {
+                    print(anError)
+                    if let completionHandler = self.OAuthTokenCompletionHandler {
+                        let noOAuthError = NSError(domain:"com.error.domain", code: -1, userInfo: [NSLocalizedDescriptionKey: "Could not obtain an OAuth token", NSLocalizedRecoverySuggestionErrorKey: "Please retry your request"])
+                        completionHandler(noOAuthError)
+                    }
+                    let defaults = NSUserDefaults.standardUserDefaults()
+                    defaults.setBool(false, forKey: "loadingOAuthToken")
+                    return
+                }
+                
+                print("Results: \(response.result)")
+                
+                if let receivedResults = response.result.value {
+                    let resultParams:Array<String> = receivedResults.componentsSeparatedByString("&")
+                    
+                    for param in resultParams {
+                        let resultsSplit = param.componentsSeparatedByString("=")
+                        if (resultsSplit.count == 2) {
+                            let key = resultsSplit[0].lowercaseString // access_token, scope, token_type
+                            let value = resultsSplit[1]
+                            switch key {
+                            case "access_token":
+                                self.OAuthToken = value
+                            case "scope":
+                                // TODO: verify scope
+                                print("SET SCOPE")
+                            case "token_type":
+                                // TODO: verify is bearer
+                                print("CHECK IF BEARER")
+                            default:
+                                print("got more than I expected from the OAuth token exchange")
+                                print(key)
+                                print(value)
+                            }
                         }
-                        
                     }
                 }
-            })
-        }
-        
-        // start the task
-        task.resume()
-    }
-    
-    func uploadRequest(path: String, data: NSData, title: String) -> NSMutableURLRequest {
-        let boundary = "---------------------------14737809831466499882746641449"
-        let request = buildRequest(path, method: "POST", authType: HTTPRequestAuthType.HTTPTokenAuth,
-            requestContentType:HTTPRequestContentType.HTTPMultipartContent, requestBoundary:boundary) as NSMutableURLRequest
-        
-        let bodyParams : NSMutableData = NSMutableData()
-        
-        // build and format HTTP body with data
-        // prepare for multipart form uplaod
-        
-        let boundaryString = "--\(boundary)\r\n"
-        let boundaryData = boundaryString.dataUsingEncoding(NSUTF8StringEncoding) as NSData!
-        bodyParams.appendData(boundaryData)
-        
-        // set the parameter name
-        let imageMeteData = "Content-Disposition: attachment; name=\"image\"; filename=\"photo\"\r\n".dataUsingEncoding(NSUTF8StringEncoding, allowLossyConversion: false)
-        bodyParams.appendData(imageMeteData!)
-        
-        // set the content type
-        let fileContentType = "Content-Type: application/octet-stream\r\n\r\n".dataUsingEncoding(NSUTF8StringEncoding, allowLossyConversion: false)
-        bodyParams.appendData(fileContentType!)
-        
-        // add the actual image data
-        bodyParams.appendData(data)
-        
-        let imageDataEnding = "\r\n".dataUsingEncoding(NSUTF8StringEncoding, allowLossyConversion: false)
-        bodyParams.appendData(imageDataEnding!)
-        
-        let boundaryString2 = "--\(boundary)\r\n"
-        let boundaryData2 = boundaryString.dataUsingEncoding(NSUTF8StringEncoding) as NSData!
-        
-        bodyParams.appendData(boundaryData2)
-        
-        // pass the caption of the image
-        let formData = "Content-Disposition: form-data; name=\"title\"\r\n\r\n".dataUsingEncoding(NSUTF8StringEncoding, allowLossyConversion: false)
-        bodyParams.appendData(formData!)
-        
-        let formData2 = title.dataUsingEncoding(NSUTF8StringEncoding, allowLossyConversion: false)
-        bodyParams.appendData(formData2!)
-        
-        let closingFormData = "\r\n".dataUsingEncoding(NSUTF8StringEncoding, allowLossyConversion: false)
-        bodyParams.appendData(closingFormData!)
-        
-        let closingData = "--\(boundary)--\r\n"
-        let boundaryDataEnd = closingData.dataUsingEncoding(NSUTF8StringEncoding) as NSData!
-        
-        bodyParams.appendData(boundaryDataEnd)
-        
-        request.HTTPBody = bodyParams
-        return request
-    }
-    
-    func getErrorMessage(error: NSError) -> NSString {
-        var errorMessage : NSString
-        
-        // return correct error message
-        if error.domain == "HTTPHelperError" {
-            let userInfo = error.userInfo as NSDictionary!
-            errorMessage = userInfo.valueForKey("message") as! NSString
+            }
+            
+            let defaults = NSUserDefaults.standardUserDefaults()
+            defaults.setBool(false, forKey: "loadingOAuthToken")
+
+            if self.hasOAuthToken() {
+                if let completionHandler = self.OAuthTokenCompletionHandler {
+                    completionHandler(nil)
+                }
+            } else {
+                if let completionHandler = self.OAuthTokenCompletionHandler {
+                    let noOAuthError = NSError(domain: "com.error.domain", code: -1, userInfo: [NSLocalizedDescriptionKey: "Could not obtain an OAuth token", NSLocalizedRecoverySuggestionErrorKey: "Please retry your request"])
+                    completionHandler(noOAuthError)
+                }
+            }
         } else {
-            errorMessage = error.description
+        // no code in URL that we launched with
+        let defaults = NSUserDefaults.standardUserDefaults()
+        defaults.setBool(false, forKey: "loadingOAuthToken")
         }
-        
-        return errorMessage
     }
+    
+    func addSessionHeader(key: String, value: String) {
+        let manager = Alamofire.Manager.sharedInstance
+        if var sessionHeaders = manager.session.configuration.HTTPAdditionalHeaders as? Dictionary<String, String> {
+            sessionHeaders[key] = value
+            manager.session.configuration.HTTPAdditionalHeaders = sessionHeaders
+        } else {
+            manager.session.configuration.HTTPAdditionalHeaders = [key: value]
+        }
+    }
+    
+    func removeSessionHeaderIfExists(key: String) {
+        let manager = Alamofire.Manager.sharedInstance
+        if var sessionHeaders = manager.session.configuration.HTTPAdditionalHeaders as? Dictionary<String, String> {
+            sessionHeaders.removeValueForKey(key)
+            manager.session.configuration.HTTPAdditionalHeaders = sessionHeaders
+        }
+    }
+    
 }

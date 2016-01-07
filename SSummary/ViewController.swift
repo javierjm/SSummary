@@ -12,7 +12,15 @@ class ViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        // Do any additional setup after loading the view, typically from a nib.
+        
+        let defaults = NSUserDefaults.standardUserDefaults()
+        
+        if (!defaults.boolForKey("loadingOAuthToken")) {
+            let helper = HTTPHelper()
+            helper.loadInitialData()
+        } else {
+            print("currently Loading OAuth")
+        }
     }
 
     override func didReceiveMemoryWarning() {

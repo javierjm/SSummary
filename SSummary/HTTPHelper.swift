@@ -142,59 +142,25 @@ class HTTPHelper {
         if let receivedCode = code {
             let getTokenPath:String = acessTokenUrl
             let tokenParams = ["client_id": clientID, "client_secret": clientSecret, "code": receivedCode]
-            Alamofire.request(.POST, getTokenPath, parameters: tokenParams).responseString{response in
-                    print(response.request)
-                if let anError = response.result.error {
-                    print(anError)
-                    if let completionHandler = self.OAuthTokenCompletionHandler {
-                        let noOAuthError = NSError(domain:"com.error.domain", code: -1, userInfo: [NSLocalizedDescriptionKey: "Could not obtain an OAuth token", NSLocalizedRecoverySuggestionErrorKey: "Please retry your request"])
-                        completionHandler(noOAuthError)
-                    }
-                    let defaults = NSUserDefaults.standardUserDefaults()
-                    defaults.setBool(false, forKey: "loadingOAuthToken")
-                    return
-                }
+
+            Alamofire.request(.POST, getTokenPath, parameters: tokenParams).responseJSON{ (response) in
+                debugPrint(response)
                 
-                print("Results: \(response.result)")
-                
-                if let receivedResults = response.result.value {
-                    let resultParams:Array<String> = receivedResults.componentsSeparatedByString("&")
-                    
-                    for param in resultParams {
-                        let resultsSplit = param.componentsSeparatedByString("=")
-                        if (resultsSplit.count == 2) {
-                            let key = resultsSplit[0].lowercaseString // access_token, scope, token_type
-                            let value = resultsSplit[1]
-                            switch key {
-                            case "access_token":
-                                self.OAuthToken = value
-                            case "scope":
-                                // TODO: verify scope
-                                print("SET SCOPE")
-                            case "token_type":
-                                // TODO: verify is bearer
-                                print("CHECK IF BEARER")
-                            default:
-                                print("got more than I expected from the OAuth token exchange")
-                                print(key)
-                                print(value)
-                            }
-                        }
+                switch response.result {
+                case .Success:
+                    if let value = response.result.value {
+                        let json = JSON(value)
+                        print("JSON: \(json)")
+                    self.OAuthToken = "Bearer " + json["access_token"].stringValue
+                    if let athleteDictionary = json["athlete"].dictionaryObject {
+                        let athlete = Athlete.Populate(athleteDictionary)
+                        
+                        debugPrint("Athlete name is: \(athlete.firstname)")
                     }
-                }
-                
-                let defaults = NSUserDefaults.standardUserDefaults()
-                defaults.setBool(false, forKey: "loadingOAuthToken")
-                
-                if self.hasOAuthToken() {
-                    if let completionHandler = self.OAuthTokenCompletionHandler {
-                        completionHandler(nil)
+
                     }
-                } else {
-                    if let completionHandler = self.OAuthTokenCompletionHandler {
-                        let noOAuthError = NSError(domain: "com.error.domain", code: -1, userInfo: [NSLocalizedDescriptionKey: "Could not obtain an OAuth token", NSLocalizedRecoverySuggestionErrorKey: "Please retry your request"])
-                        completionHandler(noOAuthError)
-                    }
+                case .Failure(let error):
+                    print(error)
                 }
             }
     
@@ -207,7 +173,7 @@ class HTTPHelper {
     
     // MARK: Header Managers
     func addSessionHeader(key: String, value: String) {
-        let manager = Alamofire.Manager.sharedInstance
+        let manager = self.alamofireManager()
         if var sessionHeaders = manager.session.configuration.HTTPAdditionalHeaders as? Dictionary<String, String> {
             sessionHeaders[key] = value
             manager.session.configuration.HTTPAdditionalHeaders = sessionHeaders
@@ -217,7 +183,7 @@ class HTTPHelper {
     }
     
     func removeSessionHeaderIfExists(key: String) {
-        let manager = Alamofire.Manager.sharedInstance
+        let manager = self.alamofireManager()
         if var sessionHeaders = manager.session.configuration.HTTPAdditionalHeaders as? Dictionary<String, String> {
             sessionHeaders.removeValueForKey(key)
             manager.session.configuration.HTTPAdditionalHeaders = sessionHeaders

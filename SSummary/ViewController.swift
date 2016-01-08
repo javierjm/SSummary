@@ -13,14 +13,14 @@ class ViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         
-        let defaults = NSUserDefaults.standardUserDefaults()
+//        let defaults = NSUserDefaults.standardUserDefaults()
         
-        if (!defaults.boolForKey("loadingOAuthToken")) {
+//        if (!defaults.boolForKey("loadingOAuthToken")) {
             let helper = HTTPHelper()
             helper.loadInitialData()
-        } else {
-            print("currently Loading OAuth")
-        }
+//        } else {
+//            print("currently Loading OAuth")
+//        }
     }
 
     override func didReceiveMemoryWarning() {

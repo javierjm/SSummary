@@ -2,6 +2,7 @@
 import Foundation
 import Alamofire
 import KeychainAccess
+import SwiftyJSON
 
 enum HTTPRequestAuthType {
     case HTTPBasicAuth
@@ -54,7 +55,7 @@ class HTTPHelper {
             }
         }
     }
-
+ 
 
     // handlers for the OAuth process
     // stored as vars since sometimes it requires a round trip to safari which
@@ -63,27 +64,53 @@ class HTTPHelper {
     
     func loadInitialData() {
         if (!HTTPHelper.sharedInstance.hasOAuthToken()) {
+            
+            HTTPHelper.sharedInstance.OAuthTokenCompletionHandler = {
+                (error) -> Void in
+                print("handlin stuff")
+                if let receivedError = error {
+                    print(receivedError)
+                    // TODO: handle error
+                    // TODO: issue: don't get unauthorized if we try this query
+                    HTTPHelper.sharedInstance.startOAuth2Login()
+                }
+                else {
+                    self.fetchMyActivities({ (fetchedRepos, error) -> Void in
+                        print ("Got Activities")
+                        if let gotErr = error {
+                            print ("There was an error retrieving errors \(gotErr)")
+                        } else {
+                            print("Got Repos !!!!")
+                        }
+                    })                }
+            }
             HTTPHelper.sharedInstance.startOAuth2Login()
         } else {
-            // fetch Activities
-    //        fetchMyRepos()
+            fetchMyActivities({ (fetchedRepos, error) -> Void in
+                print ("Got Activities")
+                if let gotErr = error {
+                    print ("There was an error retrieving errors \(gotErr)")
+                } else {
+                    print("Got Repos !!!!")
+                }
+            })
         }
     }
 
     func alamofireManager() -> Manager {
         let manager = Alamofire.Manager.sharedInstance
+        // Read the Documentation for Additional Headers
         return manager
     }
     
+    // MARK: - OAuth flow
+    
     func hasOAuthToken() -> Bool {
-        // TODO: implement
         if let token = self.OAuthToken {
             return !token.isEmpty
         }
         return false
     }
-    
-    // MARK: - OAuth flow
     
     func startOAuth2Login() {
         // TODO: implement
@@ -155,21 +182,22 @@ class HTTPHelper {
                         }
                     }
                 }
-            }
-            
-            let defaults = NSUserDefaults.standardUserDefaults()
-            defaults.setBool(false, forKey: "loadingOAuthToken")
-
-            if self.hasOAuthToken() {
-                if let completionHandler = self.OAuthTokenCompletionHandler {
-                    completionHandler(nil)
+                
+                let defaults = NSUserDefaults.standardUserDefaults()
+                defaults.setBool(false, forKey: "loadingOAuthToken")
+                
+                if self.hasOAuthToken() {
+                    if let completionHandler = self.OAuthTokenCompletionHandler {
+                        completionHandler(nil)
+                    }
+                } else {
+                    if let completionHandler = self.OAuthTokenCompletionHandler {
+                        let noOAuthError = NSError(domain: "com.error.domain", code: -1, userInfo: [NSLocalizedDescriptionKey: "Could not obtain an OAuth token", NSLocalizedRecoverySuggestionErrorKey: "Please retry your request"])
+                        completionHandler(noOAuthError)
+                    }
                 }
-            } else {
-                if let completionHandler = self.OAuthTokenCompletionHandler {
-                    let noOAuthError = NSError(domain: "com.error.domain", code: -1, userInfo: [NSLocalizedDescriptionKey: "Could not obtain an OAuth token", NSLocalizedRecoverySuggestionErrorKey: "Please retry your request"])
-                    completionHandler(noOAuthError)
-                }
             }
+    
         } else {
         // no code in URL that we launched with
         let defaults = NSUserDefaults.standardUserDefaults()
@@ -177,6 +205,7 @@ class HTTPHelper {
         }
     }
     
+    // MARK: Header Managers
     func addSessionHeader(key: String, value: String) {
         let manager = Alamofire.Manager.sharedInstance
         if var sessionHeaders = manager.session.configuration.HTTPAdditionalHeaders as? Dictionary<String, String> {
@@ -192,6 +221,24 @@ class HTTPHelper {
         if var sessionHeaders = manager.session.configuration.HTTPAdditionalHeaders as? Dictionary<String, String> {
             sessionHeaders.removeValueForKey(key)
             manager.session.configuration.HTTPAdditionalHeaders = sessionHeaders
+        }
+    }
+    
+// MARK: API Access
+    
+    func fetchMyActivities(completionHandler: (Array<Activity>?, NSError?) -> Void) {
+        let path = "https://www.strava.com/api/v3/athlete/activities"
+        
+        self.alamofireManager().request(.GET, path, parameters: ["per_page": "1"], encoding: ParameterEncoding.URL).responseJSON { (response) in
+            debugPrint(response)
+            print("Response.request is: \n \(response.request)")
+            print("Response.response is: \n \(response.response)")
+            print("Response.data is: \n \(response.data)")
+            print("Response.result is: \n \(response.result)")
+            
+            if let JSON = response.result.value {
+                print("JSON: \(JSON)")
+            }
         }
     }
     
